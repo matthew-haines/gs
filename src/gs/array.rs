@@ -54,6 +54,12 @@ impl<T> GPUArray<T> {
         }
     }
 
+    pub fn get_mut_slice(&mut self) -> &mut [T] {
+        unsafe {
+            std::slice::from_raw_parts_mut(self.buffer.contents().cast::<T>(), self.len() as usize)
+        }
+    }
+
     pub fn sync(&self, command_buffer: &CommandBufferRef) {
         if self.buffer.resource_options() == MTLResourceOptions::StorageModeManaged {
             let blit_command_encoder = command_buffer.new_blit_command_encoder();

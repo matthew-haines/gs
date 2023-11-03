@@ -7,7 +7,7 @@ void group_reduce(device T& out, threadgroup T* data, const uint idx, const uint
   threadgroup_barrier(metal::mem_flags::mem_threadgroup);
 
   for (uint s = 1; s < n; s *= 2) {
-    if (idx % (2 * s) && (idx + s) < n) {
+    if (idx % (2 * s) == 0 && (idx + s) < n) {
       data[idx] += data[idx + s];
     }
     threadgroup_barrier(metal::mem_flags::mem_threadgroup);
@@ -16,6 +16,17 @@ void group_reduce(device T& out, threadgroup T* data, const uint idx, const uint
   if (idx == 0) {
     out = data[0];
   }
+}
+
+kernel void reduce_test(
+  device uint& out,
+  device const uint& n,
+  uint thread_index [[thread_position_in_threadgroup]],
+  uint group_size [[ threads_per_threadgroup ]],
+  threadgroup uint* shared_memory [[ threadgroup(0) ]]
+  ) {
+  shared_memory[thread_index] = 1;
+  group_reduce(out, shared_memory, thread_index, n);
 }
 
 template <typename T, uint n>
@@ -53,13 +64,17 @@ template <uint block_size, uint radix>
 kernel void sort_downsweep(
   device const uint* data,
   device Vector<uint, radix>* out_histograms,
-  device uint& n,
-  device uint& block_count,
+  device const uint& n,
+  device const uint& block_count,
+  device const uint& shift,
   uint thread_index [[thread_position_in_threadgroup]],
   uint group_index [[threadgroup_position_in_grid]],
   uint group_size [[ threads_per_threadgroup ]],
   threadgroup Vector<uint, radix>* shared_memory [[ threadgroup(0) ]]) {
   Vector<uint, radix> histogram{};
+
+  const uint bitshift = metal::popcount(radix - 1) * shift;
+  const uint mask = (radix - 1) << bitshift;
 
   for (uint block_index = 0; block_index < block_count; ++block_index) {
     uint index = thread_index + block_size * block_index + block_size * group_size * group_index;
@@ -68,7 +83,7 @@ kernel void sort_downsweep(
     }
 
     uint item = data[index];
-    uint key = item & (radix - 1);
+    uint key = (item & mask) >> bitshift;
     ++histogram[key];
   }
 
@@ -76,4 +91,4 @@ kernel void sort_downsweep(
   group_reduce(out_histograms[group_index], shared_memory, thread_index, n);
 }
 
-template [[host_name("sort_downsweep_u32")]] kernel void sort_downsweep<8, 4>(device const uint*, device Vector<uint, 4>*, device uint&, device uint&, uint, uint, uint, threadgroup Vector<uint, 4>*);
+template [[host_name("sort_downsweep_u32")]] kernel void sort_downsweep<8, 4>(device const uint*, device Vector<uint, 4>*, device const uint&, device const uint&, device const uint&, uint, uint, uint, threadgroup Vector<uint, 4>*);
